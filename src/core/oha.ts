@@ -37,7 +37,7 @@ export async function runOha(spec: RequestSpec, load: LoadProfile): Promise<Meas
 }
 
 function buildArgs(spec: RequestSpec, load: LoadProfile): string[] {
-  const args = ['-j', '--no-tui', '-c', String(Math.max(1, load.concurrency)), '-m', spec.method];
+  const args = ['--output-format', 'json', '--no-tui', '-c', String(Math.max(1, load.concurrency)), '-m', spec.method];
 
   if (load.durationMs !== undefined) {
     args.push('-z', `${load.durationMs}ms`);
