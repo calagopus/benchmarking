@@ -23,6 +23,8 @@ pnpm run bench calagopus    # bench the Calagopus panel
 pnpm run bench pterodactyl  # bench the Pterodactyl panel
 pnpm run bench pelican      # bench the Pelican panel
 pnpm run bench pufferpanel  # bench the PufferPanel panel
+pnpm run bench featherpanel # bench the FeatherPanel panel
+pnpm run bench hydrodactyl  # bench the Hydrodactyl panel
 
 pnpm run bench pterodactyl --compare calagopus  # bench Pterodactyl and Calagopus in series, then compare results
 pnpm run bench pufferpanel --compare calagopus  # bench PufferPanel and Calagopus in series, then compare results

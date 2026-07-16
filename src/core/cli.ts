@@ -28,6 +28,8 @@ Targets:
   pterodactyl              Benchmark the Pterodactyl panel
   pelican                  Benchmark the Pelican panel
   pufferpanel              Benchmark the PufferPanel panel
+  featherpanel             Benchmark the FeatherPanel panel
+  hydrodactyl              Benchmark the Hydrodactyl panel
 
 Comparison:
       --compare <target>   Also benchmark this target (in serial, after the

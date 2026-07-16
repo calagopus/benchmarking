@@ -1,0 +1,54 @@
+services:
+  panel:
+    image: ${HYDRODACTYL_IMAGE:-ghcr.io/blueprintframework/hydrodactyl:latest}
+    restart: unless-stopped
+    cpus: ${HYDRODACTYL_CPUS:-0}
+    mem_limit: ${HYDRODACTYL_MEM:-0}
+    environment:
+      - TZ=Etc/UTC
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - APP_ENVIRONMENT_ONLY=false
+      - APP_KEY=base64:567kaTtoGJ49kja4+esPz8Atd2jOMey4GzJvBGQ6/oY=
+      - APP_URL=${HYDRODACTYL_URL:-http://localhost:80}
+      - APP_TIMEZONE=UTC
+      - HASHIDS_LENGTH=8
+      - HASHIDS_SALT=benchmark-hashids-salt
+      - TRUSTED_PROXIES=*
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=panel
+      - DB_USERNAME=hydrodactyl
+      - DB_PASSWORD=hydrodactyl
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+      - QUEUE_CONNECTION=redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    ports:
+      - "${HYDRODACTYL_PORT:-80}:80"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      - TZ=Etc/UTC
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=panel
+      - MYSQL_USER=hydrodactyl
+      - MYSQL_PASSWORD=hydrodactyl
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped

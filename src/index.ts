@@ -5,6 +5,8 @@ import { formatComparison, formatReport } from './core/report.ts';
 import type { Suite } from './core/suite.ts';
 import type { SuiteReport } from './core/types.ts';
 import { calagopusSuite } from './suites/calagopus.ts';
+import { featherpanelSuite } from './suites/featherpanel.ts';
+import { hydrodactylSuite } from './suites/hydrodactyl.ts';
 import { pelicanSuite } from './suites/pelican.ts';
 import { pterodactylSuite } from './suites/pterodactyl.ts';
 import { pufferpanelSuite } from './suites/pufferpanel.ts';
@@ -17,6 +19,10 @@ const SUITES: Record<string, (config: CliConfig) => Suite> = {
   pelican: (config) => pelicanSuite({ panel: config.panel, scenarios: config.scenarios, variants: config.variants }),
   pufferpanel: (config) =>
     pufferpanelSuite({ panel: config.panel, scenarios: config.scenarios, variants: config.variants }),
+  featherpanel: (config) =>
+    featherpanelSuite({ panel: config.panel, scenarios: config.scenarios, variants: config.variants }),
+  hydrodactyl: (config) =>
+    hydrodactylSuite({ panel: config.panel, scenarios: config.scenarios, variants: config.variants }),
 };
 
 async function main(): Promise<void> {

@@ -1,0 +1,45 @@
+services:
+  backend:
+    image: ${FEATHERPANEL_IMAGE:-ghcr.io/mythicalltd/featherpanel-backend:latest}
+    restart: unless-stopped
+    cpus: ${FEATHERPANEL_CPUS:-0}
+    mem_limit: ${FEATHERPANEL_MEM:-0}
+    environment:
+      - TZ=Etc/UTC
+      - DATABASE_HOST=mysql
+      - DATABASE_PORT=3306
+      - DATABASE_DATABASE=featherpanel
+      - DATABASE_USER=featherpanel
+      - DATABASE_PASSWORD=featherpanel
+      - DATABASE_ENCRYPTION=xchacha20
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=featherpanel
+      - TRUST_PROXY_HEADERS=true
+      - PANEL_DOCKER_DEPLOYMENT=true
+    ports:
+      - "${FEATHERPANEL_PORT:-80}:80"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  mysql:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      - TZ=Etc/UTC
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_DATABASE=featherpanel
+      - MYSQL_USER=featherpanel
+      - MYSQL_PASSWORD=featherpanel
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass featherpanel
