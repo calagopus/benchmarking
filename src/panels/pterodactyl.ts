@@ -2,13 +2,8 @@ import path from 'node:path';
 import colors from 'ansi-colors';
 import { composeExec } from '../core/docker.ts';
 import { DockerPanel } from '../core/panel.ts';
-import {
-  type AuthContext,
-  type Operation,
-  type RequestSpec,
-  type ResourceLimit,
-  UNAUTHENTICATED,
-} from '../core/types.ts';
+import type { AuthContext, Operation, RequestSpec, ResourceLimit } from '../core/types.ts';
+import { cookieHeader, parseSetCookies, randomHighPort } from '../core/utils.ts';
 
 export interface PterodactylCredentials {
   readonly username: string;
@@ -33,10 +28,6 @@ const DEFAULT_CREDENTIALS: PterodactylCredentials = {
 };
 
 const DEFAULT_COMPOSE_FILE = path.resolve(import.meta.dirname, '..', '..', 'docker', 'pterodactyl.compose.yml');
-
-function randomHighPort(): number {
-  return 20000 + Math.floor(Math.random() * 40000);
-}
 
 export class PterodactylPanel extends DockerPanel {
   readonly name = 'pterodactyl';
@@ -170,30 +161,4 @@ export class PterodactylPanel extends DockerPanel {
     }
     console.log(colors.dim(result.code === 0 ? '  admin user created' : '  admin user already existed'));
   }
-
-  private authHeaders(auth: AuthContext): Record<string, string> {
-    return auth.mode === 'authenticated' ? { ...auth.headers } : { ...UNAUTHENTICATED.headers };
-  }
-
-  private url(pathname: string): string {
-    return new URL(pathname, this.baseUrl).toString();
-  }
-}
-
-function parseSetCookies(response: Response): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const entry of response.headers.getSetCookie()) {
-    const pair = entry.split(';', 1)[0] ?? '';
-    const eq = pair.indexOf('=');
-    if (eq > 0) {
-      out[pair.slice(0, eq)] = pair.slice(eq + 1);
-    }
-  }
-  return out;
-}
-
-function cookieHeader(cookies: Record<string, string>): string {
-  return Object.entries(cookies)
-    .map(([name, value]) => `${name}=${value}`)
-    .join('; ');
 }

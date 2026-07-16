@@ -2,13 +2,8 @@ import path from 'node:path';
 import colors from 'ansi-colors';
 import { composeExec } from '../core/docker.ts';
 import { DockerPanel } from '../core/panel.ts';
-import {
-  type AuthContext,
-  type Operation,
-  type RequestSpec,
-  type ResourceLimit,
-  UNAUTHENTICATED,
-} from '../core/types.ts';
+import type { AuthContext, Operation, RequestSpec, ResourceLimit } from '../core/types.ts';
+import { randomHighPort } from '../core/utils.ts';
 
 export interface PelicanCredentials {
   readonly username: string;
@@ -32,17 +27,10 @@ const DEFAULT_CREDENTIALS: PelicanCredentials = {
   password: 'benchmark-password-123',
 };
 
-// Pelican client API keys are `<identifier(16)><token(32)>`; the identifier
-// must start with `pacc_`. The panel login page is Livewire-driven, so instead
-// of scripting a browser login we plant a key with known values via tinker.
 const API_KEY_IDENTIFIER = 'pacc_benchmark01';
 const API_KEY_TOKEN = 'benchmarkbenchmarkbenchmark12345';
 
 const DEFAULT_COMPOSE_FILE = path.resolve(import.meta.dirname, '..', '..', 'docker', 'pelican.compose.yml');
-
-function randomHighPort(): number {
-  return 20000 + Math.floor(Math.random() * 40000);
-}
 
 export class PelicanPanel extends DockerPanel {
   readonly name = 'pelican';
@@ -175,13 +163,5 @@ export class PelicanPanel extends DockerPanel {
         `failed to plant client api key (exit ${result.code}): ${result.stderr.trim() || result.stdout.trim()}`,
       );
     }
-  }
-
-  private authHeaders(auth: AuthContext): Record<string, string> {
-    return auth.mode === 'authenticated' ? { ...auth.headers } : { ...UNAUTHENTICATED.headers };
-  }
-
-  private url(pathname: string): string {
-    return new URL(pathname, this.baseUrl).toString();
   }
 }

@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import colors from 'ansi-colors';
 import { type ComposeConfig, composeContainerId, composeDown, composeUp } from './docker.ts';
-import type { AuthContext, Operation, RequestSpec, ResourceLimit } from './types.ts';
+import { type AuthContext, type Operation, type RequestSpec, type ResourceLimit, UNAUTHENTICATED } from './types.ts';
 
 export abstract class Panel {
   abstract readonly name: string;
@@ -72,5 +72,13 @@ export abstract class DockerPanel extends Panel {
     }
 
     throw new Error(`${this.name} not ready after ${timeoutMs}ms: ${String(lastError)}`);
+  }
+
+  protected url(pathname: string): string {
+    return new URL(pathname, this.baseUrl).toString();
+  }
+
+  protected authHeaders(auth: AuthContext): Record<string, string> {
+    return auth.mode === 'authenticated' ? { ...auth.headers } : { ...UNAUTHENTICATED.headers };
   }
 }
