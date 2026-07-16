@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023", "DOM"],
+    "pretty": true,
+    "resolveJsonModule": true,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "target": "ES2022",
+    "rootDir": "src",
+    "outDir": "lib",
+    "sourceMap": true,
+    "types": ["node"],
+    "esModuleInterop": true
+  },
+  "include": ["src/**/*"]
+}

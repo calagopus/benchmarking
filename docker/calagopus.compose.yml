@@ -1,0 +1,37 @@
+services:
+  web:
+    image: ${CALAGOPUS_IMAGE:-ghcr.io/calagopus/panel:latest}
+    restart: unless-stopped
+    cpus: ${CALAGOPUS_CPUS:-0}
+    mem_limit: ${CALAGOPUS_MEM:-0}
+    environment:
+      - TZ=Etc/UTC
+      - DATABASE_URL=postgresql://panel:panel@db/panel
+      - DATABASE_MIGRATE=true
+      - PORT=8000
+      - APP_DEBUG=false
+      - APP_PRIMARY=true
+      - APP_ENABLE_WINGS_PROXY=false
+      - APP_ENCRYPTION_KEY=benchmarking-insecure-key-change-me
+      - APP_USE_DECRYPTION_CACHE=true
+      - APP_USE_INTERNAL_CACHE=true
+    ports:
+      - "${CALAGOPUS_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: ghcr.io/calagopus/pgautoupgrade:18-alpine
+    restart: unless-stopped
+    environment:
+      - TZ=Etc/UTC
+      - POSTGRES_USER=panel
+      - POSTGRES_PASSWORD=panel
+      - POSTGRES_DB=panel
+      - PGDATA=/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U panel -d panel"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

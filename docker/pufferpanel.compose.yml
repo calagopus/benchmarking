@@ -1,0 +1,12 @@
+services:
+  panel:
+    image: ${PUFFERPANEL_IMAGE:-pufferpanel/pufferpanel:latest}
+    restart: unless-stopped
+    cpus: ${PUFFERPANEL_CPUS:-0}
+    mem_limit: ${PUFFERPANEL_MEM:-0}
+    environment:
+      - TZ=Etc/UTC
+      - PUFFER_PANEL_REGISTRATIONENABLED=false
+      - PUFFER_DAEMON_ENABLE=false
+    ports:
+      - "${PUFFERPANEL_PORT:-8080}:8080"
