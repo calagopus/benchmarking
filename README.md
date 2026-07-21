@@ -25,12 +25,17 @@ pnpm run bench pelican      # bench the Pelican panel
 pnpm run bench pufferpanel  # bench the PufferPanel panel
 pnpm run bench featherpanel # bench the FeatherPanel panel
 pnpm run bench hydrodactyl  # bench the Hydrodactyl panel
+pnpm run bench all          # bench every panel in series
 
 pnpm run bench pterodactyl --compare calagopus  # bench Pterodactyl and Calagopus in series, then compare results
 pnpm run bench pufferpanel --compare calagopus  # bench PufferPanel and Calagopus in series, then compare results
 
 pnpm run bench pterodactyl --compare pelican  # bench Pterodactyl and Pelican in series, then compare results (you will see a funny result)
+
+pnpm run bench all --output-dir results  # bench every panel and write results/<target>.json for each
 ```
+
+With `--output-dir <dir>` (short `-o`) each suite report is written to `<dir>/<target>.json`, pretty-printed, as soon as that suite finishes. The directory is created if it does not exist. This works for single, `--compare`, and `all` runs. When running `all`, a failing panel does not abort the sweep: the remaining panels still run, the failure is reported at the end, and the process exits non-zero.
 
 ## Contributing
 

@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import colors from 'ansi-colors';
 import { type CliConfig, CliError, HELP_TEXT, parseCli } from './core/cli.ts';
 import { ensureDependencies } from './core/preflight.ts';
@@ -32,11 +34,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  const targets = parsed.compare !== undefined ? [parsed.target, parsed.compare] : [parsed.target];
+  const runAll = parsed.target === 'all';
+  const targets = runAll
+    ? Object.keys(SUITES)
+    : parsed.compare !== undefined
+      ? [parsed.target, parsed.compare]
+      : [parsed.target];
   const builds = targets.map((target) => {
     const build = SUITES[target];
     if (build === undefined) {
-      throw new CliError(`unknown benchmark target '${target}' (choose one of: ${Object.keys(SUITES).join(', ')})`);
+      throw new CliError(
+        `unknown benchmark target '${target}' (choose one of: ${[...Object.keys(SUITES), 'all'].join(', ')})`,
+      );
     }
     return build;
   });
@@ -48,26 +57,54 @@ async function main(): Promise<void> {
   }
 
   await ensureDependencies();
-
-  const reports: SuiteReport[] = [];
-  for (const [index, build] of builds.entries()) {
-    console.log(colors.cyan(`${targets[index]} benchmarking`));
-    reports.push(await build(parsed).run());
+  if (parsed.outputDir !== undefined) {
+    await mkdir(parsed.outputDir, { recursive: true });
   }
 
+  const completed: [target: string, report: SuiteReport][] = [];
+  const failed: string[] = [];
+  for (const [index, build] of builds.entries()) {
+    const target = targets[index];
+    console.log(colors.cyan(`${target} benchmarking`));
+    let report: SuiteReport;
+    try {
+      report = await build(parsed).run();
+    } catch (err) {
+      if (!runAll) {
+        throw err;
+      }
+      failed.push(target);
+      console.error(colors.red(`${target} failed:`), err);
+      continue;
+    }
+    completed.push([target, report]);
+    if (parsed.outputDir !== undefined) {
+      await writeFile(join(parsed.outputDir, `${target}.json`), `${JSON.stringify(report, null, 2)}\n`);
+    }
+  }
+
+  const reports = completed.map(([, report]) => report);
   const [report, compared] = reports;
 
   if (parsed.json) {
-    const payload = compared !== undefined ? { baseline: report, compare: compared } : report;
+    const payload = runAll
+      ? Object.fromEntries(completed)
+      : compared !== undefined
+        ? { baseline: report, compare: compared }
+        : report;
     process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
-    return;
+  } else {
+    for (const each of reports) {
+      console.log(formatReport(each));
+    }
+    if (parsed.compare !== undefined && compared !== undefined) {
+      console.log(formatComparison(report, compared));
+    }
   }
 
-  for (const each of reports) {
-    console.log(formatReport(each));
-  }
-  if (compared !== undefined) {
-    console.log(formatComparison(report, compared));
+  if (failed.length > 0) {
+    console.error(colors.red(`failed targets: ${failed.join(', ')}`));
+    process.exitCode = 1;
   }
 }
 

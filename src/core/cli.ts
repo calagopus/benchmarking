@@ -16,6 +16,7 @@ export interface CliConfig {
   readonly variants?: readonly ResourceLimit[];
   readonly scenarios?: readonly Scenario[];
   readonly json: boolean;
+  readonly outputDir?: string;
   readonly compare?: string;
 }
 
@@ -30,11 +31,13 @@ Targets:
   pufferpanel              Benchmark the PufferPanel panel
   featherpanel             Benchmark the FeatherPanel panel
   hydrodactyl              Benchmark the Hydrodactyl panel
+  all                      Benchmark every panel in series
 
 Comparison:
       --compare <target>   Also benchmark this target (in serial, after the
                            first) with the same load/variant settings, then
                            print a comparison. Panel options apply to both runs.
+                           Cannot be combined with the 'all' target.
 
 Load shaping (applied to every scenario):
   -c, --concurrency <n>    Concurrent connections
@@ -56,6 +59,8 @@ Panel:
 
 Output:
       --json               Emit the raw report as JSON on stdout (progress to stderr)
+  -o, --output-dir <dir>   Write each suite report to <dir>/<target>.json
+                           (pretty-printed; the directory is created if needed)
 
   -h, --help               Show this help
 `;
@@ -79,6 +84,9 @@ export function parseCli(argv: readonly string[]): CliConfig | 'help' {
   }
 
   const target = positionals[0] ?? 'calagopus';
+  if (values.compare !== undefined && (target === 'all' || values.compare === 'all')) {
+    throw new CliError("--compare cannot be combined with the 'all' target");
+  }
 
   const concurrency = optionalInt(values.concurrency, '--concurrency', { min: 1 });
   const durationS = optionalInt(values.duration, '--duration', { min: 1 });
@@ -88,15 +96,18 @@ export function parseCli(argv: readonly string[]): CliConfig | 'help' {
     throw new CliError('--duration and --requests are mutually exclusive');
   }
 
-  const config: CliConfig = {
+  let config: CliConfig = {
     target,
     panel: parsePanel(values),
     variants: parseVariants(values),
     scenarios: buildScenarios({ concurrency, durationS, requests, warmupS, filter: values.scenarios }),
     json: values.json === true,
   };
+  if (values['output-dir'] !== undefined) {
+    config = { ...config, outputDir: values['output-dir'] };
+  }
   if (values.compare !== undefined) {
-    return { ...config, compare: values.compare };
+    config = { ...config, compare: values.compare };
   }
   return config;
 }
@@ -116,6 +127,7 @@ const OPTIONS = {
   service: { type: 'string' },
   compare: { type: 'string' },
   json: { type: 'boolean' },
+  'output-dir': { type: 'string', short: 'o' },
   help: { type: 'boolean', short: 'h' },
 } as const;
 
