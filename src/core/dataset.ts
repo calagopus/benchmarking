@@ -68,6 +68,7 @@ export interface DatasetRequest {
   readonly trees: ReadonlySet<string>;
   readonly archives: ReadonlySet<string>;
   readonly listSizes: ReadonlySet<number>;
+  readonly blob: boolean;
 }
 
 export interface TreeInfo {
@@ -81,6 +82,7 @@ export interface Dataset {
   readonly trees: ReadonlyMap<string, TreeInfo>;
   readonly archives: ReadonlyMap<string, string>;
   readonly lists: ReadonlyMap<number, string>;
+  readonly blob: string | null;
   readonly reflink: boolean;
 }
 
@@ -89,10 +91,14 @@ export const OUTPUT_PATHS = {
   deleteTree: 'delete-me',
   upload: 'upload.bin',
   compressOutput: 'bench-output',
+  sftpUpload: 'sftp-upload.bin',
+  sftpTree: 'sftp-tree',
 } as const;
 
 export const CHUNK_PATH = 'chunk.bin';
 export const SMALL_PATH = 'small.bin';
+export const BLOB_PATH = 'blob.bin';
+export const BLOB_BYTES = 256 * MIB;
 const CHUNK_BYTES = 8 * MIB;
 const SMALL_BYTES = 4096;
 
@@ -168,12 +174,20 @@ export async function ensureDataset(root: string, request: DatasetRequest): Prom
     await writeRandomFile(path.join(root, SMALL_PATH), SMALL_BYTES, new Xorshift(0x5a11));
   });
 
+  let blob: string | null = null;
+  if (request.blob) {
+    await component(root, BLOB_PATH, { bytes: BLOB_BYTES }, async () => {
+      await writeRandomFile(path.join(root, BLOB_PATH), BLOB_BYTES, new Xorshift(0xb10b));
+    });
+    blob = BLOB_PATH;
+  }
+
   const reflink = await probeReflink(root);
   const elapsed = (performance.now() - started) / 1000;
   if (elapsed > 1) {
     console.log(colors.dim(`  dataset ready in ${elapsed.toFixed(1)}s`));
   }
-  return { root, trees, archives, lists, reflink };
+  return { root, trees, archives, lists, blob, reflink };
 }
 
 const TIMESTAMPED_ARCHIVE = /^archive-.*\.(tar\.gz|zip)$/;
@@ -188,6 +202,8 @@ function isOutput(name: string): boolean {
     name === OUTPUT_PATHS.extracted ||
     name === OUTPUT_PATHS.deleteTree ||
     name === OUTPUT_PATHS.upload ||
+    name === OUTPUT_PATHS.sftpUpload ||
+    name === OUTPUT_PATHS.sftpTree ||
     name.startsWith(OUTPUT_PATHS.compressOutput) ||
     TIMESTAMPED_ARCHIVE.test(name)
   );

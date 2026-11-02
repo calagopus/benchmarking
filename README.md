@@ -23,7 +23,7 @@ There are two kinds of targets:
 - **Panels** (`panel:<name>`) are driven with `oha` HTTP load against their client API (settings, account, server list).
 - **Daemons** (`daemon:<name>`) are the Wings node agents. They boot against a tiny in-process mock of the panel remote API, so
   the numbers isolate the daemon. Load scenarios (system info, small directory listing, file download, chmod) run through `oha`;
-  task scenarios (large directory listings, compress tree, decompress archive, delete tree, upload file) are timed operations on
+  task scenarios (large directory listings, compress tree, decompress archive, delete tree, upload file, SFTP transfers) are timed operations on
   a generated dataset, repeated a few times with the first run discarded as warmup. Each variant also records an idle CPU/heap
   baseline, sampled while the daemon is up but taking no requests.
 
@@ -48,6 +48,15 @@ be told apart:
 | `100m` | ~2k files, mostly 1 MiB region files plus a 32 MiB jar | codec and IO throughput                |
 | `1g`   | ~22k files, 1 GiB total                               | throughput at a realistic server size  |
 | `many` | 50k × 256 B files, ~13 MiB total                      | per-file syscall and archive-entry cost |
+
+SFTP tasks drive each daemon's SFTP server with the host's OpenSSH client (`ssh`, `sftp` and `ssh-keygen` must be on `PATH`;
+without them the SFTP scenarios are skipped). The mock panel accepts any credential, so the client authenticates with a
+throwaway ed25519 key generated in the workdir. The cipher is pinned to `aes128-gcm@openssh.com`, the only AEAD cipher all
+three daemons offer, because left to negotiate the Go daemons would run chacha20-poly1305. `sftp login` times a full connect,
+key exchange, auth round trip to the mock and disconnect. Every other SFTP task runs over a ControlMaster connection opened
+once per scenario, so it times only the operation itself: listing the 5000/50000-entry directories (unsorted), putting and
+getting a 256 MiB file, and recursively getting and putting the `100m` and `many` trees. SFTP is published on the HTTP host
+port + 1 (`--sftp-port` overrides it).
 
 Pick a target as the first argument (defaults to `panel:calagopus`):
 

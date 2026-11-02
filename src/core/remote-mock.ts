@@ -5,6 +5,7 @@ export interface RemoteMockOptions {
   readonly tokenId: string;
   readonly token: string;
   readonly serverUuid: string;
+  readonly userUuid: string;
   readonly server: unknown;
 }
 
@@ -92,7 +93,7 @@ export class RemoteMock {
       return;
     }
     if (method === 'POST' && route === '/sftp/auth') {
-      drain(req, () => json(res, 403, { errors: [{ code: 'AccessDeniedHttpException', detail: 'sftp disabled' }] }));
+      drain(req, () => json(res, 200, { server: serverUuid, user: this.options.userUuid, permissions: ['*'] }));
       return;
     }
     if (

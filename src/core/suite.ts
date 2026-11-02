@@ -142,6 +142,34 @@ export const DEFAULT_DAEMON_SCENARIOS: readonly Scenario[] = [
     }),
   ),
   { ...TASK_DEFAULTS, name: 'upload file (256 MiB)', operation: 'writeFile' },
+  { ...TASK_DEFAULTS, name: 'sftp login', operation: 'sftpLogin', repetitions: 10 },
+  ...LIST_SIZES.filter((entries) => entries > LIST_LOAD_LIMIT).map(
+    (entries): Scenario => ({
+      ...TASK_DEFAULTS,
+      name: `sftp list directory (${entries} entries)`,
+      operation: 'sftpList',
+      repetitions: 10,
+      params: { entries },
+    }),
+  ),
+  { ...TASK_DEFAULTS, name: 'sftp upload file (256 MiB)', operation: 'sftpUpload' },
+  { ...TASK_DEFAULTS, name: 'sftp download file (256 MiB)', operation: 'sftpDownload' },
+  ...['100m', 'many'].map(
+    (tree): Scenario => ({
+      ...TASK_DEFAULTS,
+      name: `sftp download ${treeLabel(tree)} tree`,
+      operation: 'sftpGetTree',
+      params: { tree },
+    }),
+  ),
+  ...['100m', 'many'].map(
+    (tree): Scenario => ({
+      ...TASK_DEFAULTS,
+      name: `sftp upload ${treeLabel(tree)} tree`,
+      operation: 'sftpPutTree',
+      params: { tree },
+    }),
+  ),
 ];
 
 interface ArchiveCase {
@@ -180,6 +208,12 @@ export const KNOWN_TASK_OPERATIONS: readonly TaskOperation[] = [
   'deleteTree',
   'writeFile',
   'listDirectory',
+  'sftpLogin',
+  'sftpUpload',
+  'sftpDownload',
+  'sftpList',
+  'sftpGetTree',
+  'sftpPutTree',
 ];
 
 export const DEFAULT_VARIANTS: readonly ResourceLimit[] = [{ cpus: 1 }, { cpus: 2 }, { cpus: 4 }];

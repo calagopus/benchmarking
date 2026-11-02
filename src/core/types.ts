@@ -14,7 +14,18 @@ export type Operation =
   | 'fileContents'
   | 'chmod';
 
-export type TaskOperation = 'compress' | 'decompress' | 'deleteTree' | 'writeFile' | 'listDirectory';
+export type TaskOperation =
+  | 'compress'
+  | 'decompress'
+  | 'deleteTree'
+  | 'writeFile'
+  | 'listDirectory'
+  | 'sftpLogin'
+  | 'sftpUpload'
+  | 'sftpDownload'
+  | 'sftpList'
+  | 'sftpGetTree'
+  | 'sftpPutTree';
 
 export type ArchiveFormat = 'tar.gz' | 'zip';
 

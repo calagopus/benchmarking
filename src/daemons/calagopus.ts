@@ -9,9 +9,9 @@ const FLAVOR: WingsFlavor = {
   subnetIndex: 30,
   composeFile: path.resolve(import.meta.dirname, '..', '..', 'docker', 'daemons', 'calagopus.compose.yml'),
   notes: [
-    'defaults: api.file_compression_threads=2, api.file_decompression_threads=2, api.file_copy_threads=4',
+    'defaults: api.file_compression_threads=2, api.file_decompression_threads=4, api.file_copy_threads=4',
     'system.file_history records diffs for overwrites of files <= 1MiB (not triggered by the upload task)',
-    'sftp and the firewall helper are disabled for the benchmark; api.directory_entry_limit raised from 10000 to 100000 so the 50000-entry listing is not truncated',
+    'the firewall helper and the ssh shell are disabled for the benchmark; api.directory_entry_limit and system.sftp.directory_entry_limit raised to 100000 so the 50000-entry listings are not truncated',
   ],
   renderConfig: (context) => {
     const n = context.subnetIndex;
@@ -28,7 +28,11 @@ api:
 system:
   timezone: Etc/UTC
   sftp:
-    enabled: false
+    enabled: true
+    bind_port: 2022
+    directory_entry_limit: 100000
+    shell:
+      enabled: false
 docker:
   network:
     interface: 172.${n}.0.1

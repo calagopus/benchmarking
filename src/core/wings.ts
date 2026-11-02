@@ -6,6 +6,7 @@ import { DockerDaemon } from './daemon.ts';
 import {
   ARCHIVE_FORMATS,
   archiveKey,
+  BLOB_BYTES,
   CHUNK_PATH,
   cleanOutputs,
   copyTree,
@@ -27,6 +28,7 @@ import {
 } from './dataset.ts';
 import { networkExists, networkRemove } from './docker.ts';
 import { RemoteMock } from './remote-mock.ts';
+import { SftpClient, type SftpEndpoint, type SftpResult } from './sftp.ts';
 import type { TaskOutcome, TaskRunner } from './target.ts';
 import type {
   ArchiveFormat,
@@ -46,6 +48,7 @@ export interface WingsDaemonOptions {
   readonly project?: string;
   readonly host?: string;
   readonly port?: number;
+  readonly sftpPort?: number;
   readonly image?: string;
   readonly service?: string;
   readonly workdir?: string;
@@ -76,6 +79,7 @@ export interface WingsFlavor {
 export const SERVER_UUID = '3f9d3c5e-0b0f-4d8e-9c1a-1b2c3d4e5f60';
 const EGG_UUID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const NODE_UUID = '7c6b5a49-3827-4160-9f8e-7d6c5b4a3928';
+const USER_UUID = '5e1f2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b';
 const TOKEN_ID = 'benchmarkNodeId1';
 const TOKEN = 'benchmarkbenchmarkbenchmarkbenchmarkbenchmarkbenchmarkbenchmark1';
 const DEFAULT_WORKDIR = path.resolve(process.cwd(), '.bench');
@@ -100,6 +104,8 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
   private readonly flavor: WingsFlavor;
   private readonly host: string;
   private port: number;
+  private sftpPort: number;
+  private readonly sftpPinned: boolean;
   private readonly workdir: string;
   private readonly settleMs: number;
   private readonly prune: boolean;
@@ -107,6 +113,9 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
   private ownsNetwork = false;
   private dataset: Dataset | null = null;
   private uploadBody: Uint8Array<ArrayBuffer> | null = null;
+  private readonly sftp: SftpClient;
+  private sftpAvailable = false;
+  private sftpScenario: TaskScenario | null = null;
 
   constructor(flavor: WingsFlavor, options: WingsDaemonOptions = {}) {
     super();
@@ -114,20 +123,25 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
     this.name = flavor.name;
     this.host = options.host ?? 'localhost';
     this.port = options.port ?? benchPort(this.kind, this.name);
-    this.portPinned = options.port !== undefined;
+    this.sftpPort = options.sftpPort ?? this.port + 1;
+    this.sftpPinned = options.sftpPort !== undefined;
+    this.portPinned = options.port !== undefined || this.sftpPinned;
     this.serviceName = options.service ?? 'wings';
     this.workdir = path.resolve(options.workdir ?? DEFAULT_WORKDIR, `daemon-${flavor.name}`);
+    this.sftp = new SftpClient(this.workdir);
     this.settleMs = options.settleMs ?? 10_000;
     this.prune = options.prune === true;
     this.mock = new RemoteMock({
       tokenId: TOKEN_ID,
       token: TOKEN,
       serverUuid: SERVER_UUID,
+      userUuid: USER_UUID,
       server: buildServerDocument(),
     });
 
     const env: Record<string, string> = {
       WINGS_PORT: String(this.port),
+      WINGS_SFTP_PORT: String(this.sftpPort),
       WINGS_WORKDIR: this.workdir,
       WINGS_USERNAME: flavor.username,
     };
@@ -149,9 +163,23 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
     return this.port;
   }
 
+  protected get extraHostPorts(): readonly number[] {
+    return [this.sftpPort];
+  }
+
   protected rebindPort(port: number): void {
     this.port = port;
     this.compose.env.WINGS_PORT = String(port);
+    this.sftpPort = port + 1;
+    this.compose.env.WINGS_SFTP_PORT = String(this.sftpPort);
+  }
+
+  private get sftpEndpoint(): SftpEndpoint {
+    return { host: this.host, port: this.sftpPort, username: `bench.${SERVER_UUID.slice(0, 8)}` };
+  }
+
+  private get sftpDownloadDir(): string {
+    return path.join(this.workdir, 'sftp', 'download');
   }
 
   get serverRoot(): string {
@@ -220,6 +248,8 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
 
   async stop(): Promise<void> {
     try {
+      this.sftpScenario = null;
+      await this.sftp.close();
       await super.stop();
     } finally {
       if (this.ownsNetwork) {
@@ -236,6 +266,7 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
    */
   override async release(): Promise<void> {
     await cleanOutputs(this.serverRoot);
+    await rm(this.sftpDownloadDir, { recursive: true, force: true });
     if (this.prune) {
       await rm(this.serverRoot, { recursive: true, force: true });
       await rm(path.join(this.workdir, 'log'), { recursive: true, force: true });
@@ -292,6 +323,8 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
     const trees = new Set<string>();
     const archives = new Set<string>();
     const listSizes = new Set<number>();
+    let blob = false;
+    let sftp = false;
     for (const scenario of scenarios) {
       // Listing spans both kinds, so its fixture is claimed before load scenarios are skipped.
       if (scenario.operation === 'listDirectory') {
@@ -301,10 +334,22 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
       if (scenario.kind === 'load') {
         continue;
       }
+      if (scenario.operation.startsWith('sftp')) {
+        sftp = true;
+      }
       switch (scenario.operation) {
         case 'compress':
         case 'deleteTree':
+        case 'sftpGetTree':
+        case 'sftpPutTree':
           trees.add(treeParam(scenario));
+          break;
+        case 'sftpList':
+          listSizes.add(entriesParam(scenario.params, scenario.name));
+          break;
+        case 'sftpUpload':
+        case 'sftpDownload':
+          blob = true;
           break;
         case 'decompress':
           trees.add(treeParam(scenario));
@@ -314,12 +359,19 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
           break;
       }
     }
-    const request: DatasetRequest = { trees, archives, listSizes };
+    this.sftpAvailable = sftp && (await SftpClient.available());
+    if (this.sftpAvailable) {
+      await this.sftp.prepare();
+    }
+    const request: DatasetRequest = { trees, archives, listSizes, blob };
     this.dataset = await ensureDataset(this.serverRoot, request);
     return this.dataset;
   }
 
   unsupported(scenario: TaskScenario, dataset: Dataset): string | null {
+    if (scenario.operation.startsWith('sftp') && !this.sftpAvailable) {
+      return 'the OpenSSH client (ssh, sftp, ssh-keygen) is not on PATH';
+    }
     switch (scenario.operation) {
       case 'compress': {
         const format = formatParam(scenario);
@@ -330,15 +382,22 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
           ? null
           : 'input archive missing';
       }
-      case 'listDirectory': {
+      case 'listDirectory':
+      case 'sftpList': {
         return dataset.lists.has(entriesParam(scenario.params, scenario.name)) ? null : 'list fixture missing';
       }
+      case 'sftpUpload':
+      case 'sftpDownload':
+        return dataset.blob === null ? 'blob fixture missing' : null;
       default:
         return null;
     }
   }
 
   async reset(scenario: TaskScenario, dataset: Dataset): Promise<void> {
+    if (scenario.operation.startsWith('sftp') && scenario.operation !== 'sftpLogin') {
+      await this.resetSftp(scenario);
+    }
     const root = dataset.root;
     switch (scenario.operation) {
       case 'compress':
@@ -358,7 +417,20 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
       case 'writeFile':
         await rm(path.join(root, OUTPUT_PATHS.upload), { force: true });
         break;
+      case 'sftpUpload':
+        await rm(path.join(root, OUTPUT_PATHS.sftpUpload), { force: true });
+        break;
+      case 'sftpPutTree':
+        await rm(path.join(root, OUTPUT_PATHS.sftpTree), { recursive: true, force: true });
+        break;
+      case 'sftpGetTree':
+        await rm(this.sftpDownloadDir, { recursive: true, force: true });
+        await mkdir(this.sftpDownloadDir, { recursive: true });
+        break;
       case 'listDirectory':
+      case 'sftpList':
+      case 'sftpLogin':
+      case 'sftpDownload':
         // Nothing to restore, and no writeback to flush.
         return;
       default:
@@ -449,9 +521,90 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
           'upload size mismatch',
         );
       }
+      case 'sftpLogin': {
+        const result = await this.sftp.login(this.sftpEndpoint);
+        return sftpOutcome(result, 0);
+      }
+      case 'sftpUpload': {
+        if (dataset.blob === null) {
+          return failure('blob fixture missing');
+        }
+        const outcome = await this.sftpRun(
+          [`put ${path.join(root, dataset.blob)} /${OUTPUT_PATHS.sftpUpload}`],
+          BLOB_BYTES,
+        );
+        return verify(
+          outcome,
+          (await fileSize(path.join(root, OUTPUT_PATHS.sftpUpload))) === BLOB_BYTES,
+          'upload size mismatch',
+        );
+      }
+      case 'sftpDownload': {
+        if (dataset.blob === null) {
+          return failure('blob fixture missing');
+        }
+        return this.sftpRun([`get /${dataset.blob} /dev/null`], BLOB_BYTES);
+      }
+      case 'sftpList': {
+        const entries = entriesParam(scenario.params, scenario.name);
+        // Unsorted, so the client's sort stays out of the measurement.
+        const { outcome, stdout } = await this.sftpRunCapture([`ls -1f /${listDirName(entries)}`], 0);
+        const listed = stdout.split('\n').filter((line) => line !== '' && !line.startsWith('sftp>')).length;
+        return verify(outcome, listed === entries, `listed ${listed}/${entries} entries`);
+      }
+      case 'sftpGetTree': {
+        const tree = dataset.trees.get(treeParam(scenario));
+        if (tree === undefined) {
+          return failure('tree missing');
+        }
+        const local = path.join(this.sftpDownloadDir, 'tree');
+        const outcome = await this.sftpRun([`get -r /${path.basename(tree.dir)} ${local}`], tree.bytes);
+        const count = (await fileSize(local)) === null ? 0 : await countFiles(local);
+        return verify(outcome, count === tree.files, `downloaded ${count}/${tree.files} files`);
+      }
+      case 'sftpPutTree': {
+        const tree = dataset.trees.get(treeParam(scenario));
+        if (tree === undefined) {
+          return failure('tree missing');
+        }
+        const remote = path.join(root, OUTPUT_PATHS.sftpTree);
+        const outcome = await this.sftpRun([`put -r ${tree.dir} /${OUTPUT_PATHS.sftpTree}`], tree.bytes);
+        const count = (await fileSize(remote)) === null ? 0 : await countFiles(remote);
+        return verify(outcome, count === tree.files, `uploaded ${count}/${tree.files} files`);
+      }
       default:
         return failure(`unsupported task '${scenario.operation}'`);
     }
+  }
+
+  /**
+   * One master connection per scenario: Calagopus Wings only frees a channel slot on EOF, so a
+   * long-lived master would eventually exhaust `max_channels_per_connection` after a failed run.
+   */
+  private async resetSftp(scenario: TaskScenario): Promise<void> {
+    if (this.sftpScenario === scenario && this.sftp.connected) {
+      return;
+    }
+    this.sftpScenario = scenario;
+    const result = await this.sftp.open(this.sftpEndpoint);
+    if (!result.ok) {
+      console.log(colors.yellow(`  sftp master connection failed: ${result.stderr.trim()}`));
+    }
+  }
+
+  private async sftpRun(commands: readonly string[], bytes: number): Promise<TaskOutcome> {
+    return (await this.sftpRunCapture(commands, bytes)).outcome;
+  }
+
+  private async sftpRunCapture(
+    commands: readonly string[],
+    bytes: number,
+  ): Promise<{ outcome: TaskOutcome; stdout: string }> {
+    if (!this.sftp.connected) {
+      return { outcome: failure('sftp master connection is not open'), stdout: '' };
+    }
+    const result = await this.sftp.run(commands);
+    return { outcome: sftpOutcome(result, bytes), stdout: result.stdout };
   }
 
   private upload(bytes: number): Uint8Array<ArrayBuffer> {
@@ -582,6 +735,14 @@ async function producedArchiveBytes(root: string): Promise<number> {
     bytes += (await fileSize(path.join(root, entry))) ?? 0;
   }
   return bytes;
+}
+
+function sftpOutcome(result: SftpResult, bytes: number): TaskOutcome {
+  const status = result.code ?? -1;
+  if (result.ok) {
+    return { ok: true, status, elapsedMs: result.elapsedMs, bytes };
+  }
+  return { ok: false, status, elapsedMs: result.elapsedMs, bytes, detail: result.stderr.trim().slice(0, 200) };
 }
 
 function failure(detail: string): TaskOutcome {

@@ -6,6 +6,7 @@ import type { ResourceLimit } from './types.ts';
 export interface StackOptions {
   host?: string;
   port?: number;
+  sftpPort?: number;
   image?: string;
   project?: string;
   service?: string;
@@ -88,6 +89,8 @@ Target:
       --host <host>        Target host (default localhost)
       --port <n>           Target port (default: a fixed per-target port from 20000-20999,
                            moved forward on a conflict; an explicit port is never moved)
+      --sftp-port <n>      Daemon SFTP host port (default: --port + 1, moved along with it;
+                           an explicit port pins both; daemon targets only)
       --image <ref>        Override the container image
       --project <name>     docker compose project name
       --service <name>     docker compose service name
@@ -160,6 +163,7 @@ const OPTIONS = {
   memory: { type: 'string' },
   host: { type: 'string' },
   port: { type: 'string' },
+  'sftp-port': { type: 'string' },
   image: { type: 'string' },
   project: { type: 'string' },
   service: { type: 'string' },
@@ -183,6 +187,10 @@ function parseStack(values: Values): StackOptions {
   const port = optionalInt(values.port, '--port', { min: 1, max: 65_535 });
   if (port !== undefined) {
     stack.port = port;
+  }
+  const sftpPort = optionalInt(values['sftp-port'], '--sftp-port', { min: 1, max: 65_535 });
+  if (sftpPort !== undefined) {
+    stack.sftpPort = sftpPort;
   }
   if (values.image !== undefined) {
     stack.image = values.image;

@@ -19,3 +19,4 @@ services:
       - "${WINGS_WORKDIR}/tmp:/tmp/calagopus-wings"
     ports:
       - "${WINGS_PORT:-8080}:8080"
+      - "${WINGS_SFTP_PORT:-2022}:2022"

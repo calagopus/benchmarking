@@ -93,6 +93,11 @@ export abstract class DockerTarget extends Target {
   protected abstract get hostPort(): number;
   protected abstract rebindPort(port: number): void;
 
+  /** Further host ports the stack publishes, which move along with `hostPort` on a rebind. */
+  protected get extraHostPorts(): readonly number[] {
+    return [];
+  }
+
   /** An explicitly requested port is never moved: it usually implies a tunnel or firewall rule. */
   protected portPinned = false;
 
@@ -127,7 +132,7 @@ export abstract class DockerTarget extends Target {
 
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const last = attempt + 1 >= attempts;
-      if (!last && !(await portAvailable(this.hostPort))) {
+      if (!last && !(await this.portsAvailable())) {
         console.log(colors.yellow(`  host port ${this.hostPort} is in use, moving to ${base + attempt + 1}`));
         this.rebindPort(base + attempt + 1);
         continue;
@@ -149,6 +154,15 @@ export abstract class DockerTarget extends Target {
     console.log(colors.dim(`  waiting for ${this.label} at ${this.baseUrl}${this.healthPath}...`));
     await this.waitUntilReady();
     console.log(colors.dim(`  ${this.label} is ready`));
+  }
+
+  private async portsAvailable(): Promise<boolean> {
+    for (const port of [this.hostPort, ...this.extraHostPorts]) {
+      if (!(await portAvailable(port))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private async composeUpOnce(limit: ResourceLimit): Promise<void> {
