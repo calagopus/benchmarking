@@ -160,6 +160,7 @@ export interface SuiteReport {
   readonly target: string;
   readonly kind: TargetKind;
   readonly version: string | null;
+  readonly storage: 'tmpfs' | 'disk' | null;
   readonly startedAt: string;
   readonly notes: readonly string[];
   readonly variants: readonly VariantReport[];

@@ -14,9 +14,9 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "${WINGS_WORKDIR}/etc:/etc/pelican"
-      - "${WINGS_WORKDIR}/lib:/var/lib/pelican"
+      - "${WINGS_LIBDIR}:/var/lib/pelican"
       - "${WINGS_WORKDIR}/log:/var/log/pelican"
-      - "${WINGS_WORKDIR}/tmp:/tmp/pelican"
+      - "${WINGS_TMPDIR}:/tmp/pelican"
     ports:
       - "${WINGS_PORT:-8080}:8080"
       - "${WINGS_SFTP_PORT:-2022}:2022"

@@ -14,9 +14,9 @@ services:
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "${WINGS_WORKDIR}/etc:/etc/pterodactyl"
-      - "${WINGS_WORKDIR}/lib:/var/lib/pterodactyl"
+      - "${WINGS_LIBDIR}:/var/lib/pterodactyl"
       - "${WINGS_WORKDIR}/log:/var/log/pterodactyl"
-      - "${WINGS_WORKDIR}/tmp:/tmp/pterodactyl"
+      - "${WINGS_TMPDIR}:/tmp/pterodactyl"
     ports:
       - "${WINGS_PORT:-8080}:8080"
       - "${WINGS_SFTP_PORT:-2022}:2022"

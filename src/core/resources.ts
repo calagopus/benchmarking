@@ -33,7 +33,7 @@ function dockerSocketPath(): string {
   return '/var/run/docker.sock';
 }
 
-export function readContainerSnapshot(containerId: string): Promise<Snapshot | null> {
+export function readContainerSnapshot(containerId: string, includeShmem = true): Promise<Snapshot | null> {
   return new Promise((resolve) => {
     const req = request(
       {
@@ -60,7 +60,7 @@ export function readContainerSnapshot(containerId: string): Promise<Snapshot | n
               resolve(null);
               return;
             }
-            const shmem = json.memory_stats?.stats?.shmem ?? 0;
+            const shmem = includeShmem ? (json.memory_stats?.stats?.shmem ?? 0) : 0;
             resolve({ at: sampleTime(json), cpuNs, heapBytes: anon + shmem });
           } catch {
             resolve(null);
@@ -77,12 +77,14 @@ export class ResourceSampler {
   private readonly snapshots: Snapshot[] = [];
   private readonly containerId: string;
   private readonly intervalMs: number;
+  private readonly includeShmem: boolean;
   private readonly stopped = new AbortController();
   private loop: Promise<void> = Promise.resolve();
 
-  constructor(containerId: string, intervalMs = 500) {
+  constructor(containerId: string, intervalMs = 500, includeShmem = true) {
     this.containerId = containerId;
     this.intervalMs = intervalMs;
+    this.includeShmem = includeShmem;
   }
 
   /**
@@ -113,7 +115,7 @@ export class ResourceSampler {
   }
 
   private async take(): Promise<void> {
-    const snapshot = await readContainerSnapshot(this.containerId);
+    const snapshot = await readContainerSnapshot(this.containerId, this.includeShmem);
     if (snapshot !== null) {
       this.snapshots.push(snapshot);
     }

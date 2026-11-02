@@ -1,5 +1,6 @@
 import { parseArgs } from 'node:util';
 import { ARCHIVE_FORMATS, TREE_IDS } from './dataset.ts';
+import type { StorageMode } from './ramfs.ts';
 import { KNOWN_LOAD_OPERATIONS, KNOWN_TASK_OPERATIONS, type ScenarioOptions } from './suite.ts';
 import type { ResourceLimit } from './types.ts';
 
@@ -16,6 +17,8 @@ export interface CommonDaemonOptions {
   workdir?: string;
   settleMs?: number;
   prune?: boolean;
+  ramfs?: boolean;
+  storage?: StorageMode;
 }
 
 export interface CliConfig {
@@ -102,6 +105,13 @@ Target:
                            instead of keeping them cached. Frees ~5GB per daemon, at the
                            cost of regenerating the fixtures (~40s each) on the next run.
                            Transient outputs are always freed (daemon targets only)
+      --no-ramfs           Serve daemon files from disk instead of a tmpfs. By default
+                           a size-capped tmpfs is mounted in the workdir and fixtures are
+                           swapped into it from the on-disk cache per task, so only what
+                           the current task needs is held in RAM (~2.3 GiB peak with the
+                           default scenarios). Falls back to disk when mounting fails
+                           (needs root), when memory is short, or with --memory, since
+                           tmpfs pages the daemon writes count against its limit
 
 Output:
       --json               Emit the raw report as JSON on stdout (progress to stderr)
@@ -170,6 +180,7 @@ const OPTIONS = {
   workdir: { type: 'string' },
   settle: { type: 'string' },
   prune: { type: 'boolean' },
+  'no-ramfs': { type: 'boolean' },
   compare: { type: 'string' },
   json: { type: 'boolean' },
   'no-pull': { type: 'boolean' },
@@ -215,6 +226,9 @@ function parseDaemon(values: Values): CommonDaemonOptions {
   }
   if (values.prune === true) {
     daemon.prune = true;
+  }
+  if (values['no-ramfs'] === true) {
+    daemon.ramfs = false;
   }
   return daemon;
 }

@@ -10,6 +10,7 @@ import {
   composeUp,
   isPortConflict,
 } from './docker.ts';
+import type { StorageMode } from './ramfs.ts';
 import {
   type AuthContext,
   type Operation,
@@ -70,6 +71,14 @@ export abstract class Target {
 
   tasks(): TaskRunner | null {
     return null;
+  }
+
+  get storage(): StorageMode | null {
+    return null;
+  }
+
+  get heapIncludesShmem(): boolean {
+    return true;
   }
 
   notes(): readonly string[] {

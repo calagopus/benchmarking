@@ -99,8 +99,9 @@ export const CHUNK_PATH = 'chunk.bin';
 export const SMALL_PATH = 'small.bin';
 export const BLOB_PATH = 'blob.bin';
 export const BLOB_BYTES = 256 * MIB;
-const CHUNK_BYTES = 8 * MIB;
-const SMALL_BYTES = 4096;
+export const CHUNK_BYTES = 8 * MIB;
+export const SMALL_BYTES = 4096;
+const PAGE_BYTES = 4096;
 
 export function archiveKey(treeId: string, format: ArchiveFormat): string {
   return `${treeId}:${format}`;
@@ -114,7 +115,7 @@ export function listDirName(entries: number): string {
   return `list-${entries}`;
 }
 
-function archiveFileName(treeId: string, format: ArchiveFormat): string {
+export function archiveFileName(treeId: string, format: ArchiveFormat): string {
   return `input-${treeId}.${format}`;
 }
 
@@ -124,6 +125,28 @@ function treeBytes(profile: TreeProfile): number {
 
 export function treeFiles(profile: TreeProfile): number {
   return profile.textFiles + profile.regionFiles + profile.jarFiles;
+}
+
+export function pageBytes(bytes: number): number {
+  return Math.ceil(bytes / PAGE_BYTES) * PAGE_BYTES;
+}
+
+export function treeFootprint(treeId: string): number {
+  const profile = treeProfile(treeId);
+  return (
+    profile.textFiles * pageBytes(profile.textBytes) +
+    profile.regionFiles * pageBytes(REGION_BYTES) +
+    profile.jarFiles * pageBytes(JAR_BYTES)
+  );
+}
+
+export function archiveFootprint(treeId: string): number {
+  const profile = treeProfile(treeId);
+  return pageBytes(treeBytes(profile) + treeFiles(profile) * 1024 + MIB);
+}
+
+export function listFootprint(entries: number): number {
+  return entries * PAGE_BYTES;
 }
 
 export async function ensureDataset(root: string, request: DatasetRequest): Promise<Dataset> {

@@ -5,8 +5,12 @@ import colors from 'ansi-colors';
 import { DockerDaemon } from './daemon.ts';
 import {
   ARCHIVE_FORMATS,
+  archiveFileName,
+  archiveFootprint,
   archiveKey,
   BLOB_BYTES,
+  BLOB_PATH,
+  CHUNK_BYTES,
   CHUNK_PATH,
   cleanOutputs,
   copyTree,
@@ -18,15 +22,28 @@ import {
   isGeneratedArchive,
   LIST_SIZES,
   listDirName,
+  listFootprint,
   OUTPUT_PATHS,
+  pageBytes,
   randomBytes,
+  SMALL_BYTES,
   SMALL_PATH,
   syncFilesystem,
   TREE_IDS,
   treeDirName,
+  treeFootprint,
   UPLOAD_BYTES,
 } from './dataset.ts';
 import { networkExists, networkRemove } from './docker.ts';
+import {
+  capBytes,
+  FixtureStager,
+  mountTmpfs,
+  type StagedItem,
+  type StageStep,
+  type StorageMode,
+  unmountTmpfs,
+} from './ramfs.ts';
 import { RemoteMock } from './remote-mock.ts';
 import { SftpClient, type SftpEndpoint, type SftpResult } from './sftp.ts';
 import type { TaskOutcome, TaskRunner } from './target.ts';
@@ -41,7 +58,7 @@ import type {
   ScenarioParams,
   TaskScenario,
 } from './types.ts';
-import { benchPort } from './utils.ts';
+import { benchPort, MIB } from './utils.ts';
 
 export interface WingsDaemonOptions {
   readonly composeFile?: string;
@@ -54,6 +71,7 @@ export interface WingsDaemonOptions {
   readonly workdir?: string;
   readonly settleMs?: number;
   readonly prune?: boolean;
+  readonly storage?: StorageMode;
 }
 
 export interface WingsConfigContext {
@@ -82,7 +100,7 @@ const NODE_UUID = '7c6b5a49-3827-4160-9f8e-7d6c5b4a3928';
 const USER_UUID = '5e1f2a3b-4c5d-4e6f-8a9b-0c1d2e3f4a5b';
 const TOKEN_ID = 'benchmarkNodeId1';
 const TOKEN = 'benchmarkbenchmarkbenchmarkbenchmarkbenchmarkbenchmarkbenchmark1';
-const DEFAULT_WORKDIR = path.resolve(process.cwd(), '.bench');
+export const DEFAULT_WORKDIR = path.resolve(process.cwd(), '.bench');
 const UPLOAD_SEED = 0x0bad_cafe;
 
 const COMPRESS_FORMAT_NAMES: Readonly<Record<ArchiveFormat, string>> = {
@@ -107,6 +125,8 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
   private sftpPort: number;
   private readonly sftpPinned: boolean;
   private readonly workdir: string;
+  private readonly ramDir: string;
+  private readonly storageMode: StorageMode;
   private readonly settleMs: number;
   private readonly prune: boolean;
   private readonly mock: RemoteMock;
@@ -116,6 +136,9 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
   private readonly sftp: SftpClient;
   private sftpAvailable = false;
   private sftpScenario: TaskScenario | null = null;
+  private stager: FixtureStager | null = null;
+  private taskOrder: readonly TaskScenario[] = [];
+  private stagedScenario: TaskScenario | null = null;
 
   constructor(flavor: WingsFlavor, options: WingsDaemonOptions = {}) {
     super();
@@ -128,6 +151,8 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
     this.portPinned = options.port !== undefined || this.sftpPinned;
     this.serviceName = options.service ?? 'wings';
     this.workdir = path.resolve(options.workdir ?? DEFAULT_WORKDIR, `daemon-${flavor.name}`);
+    this.ramDir = path.join(this.workdir, 'ram');
+    this.storageMode = options.storage ?? 'disk';
     this.sftp = new SftpClient(this.workdir);
     this.settleMs = options.settleMs ?? 10_000;
     this.prune = options.prune === true;
@@ -143,6 +168,8 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
       WINGS_PORT: String(this.port),
       WINGS_SFTP_PORT: String(this.sftpPort),
       WINGS_WORKDIR: this.workdir,
+      WINGS_LIBDIR: path.join(this.liveDir, 'lib'),
+      WINGS_TMPDIR: path.join(this.liveDir, 'tmp'),
       WINGS_USERNAME: flavor.username,
     };
     if (options.image !== undefined) {
@@ -178,12 +205,29 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
     return { host: this.host, port: this.sftpPort, username: `bench.${SERVER_UUID.slice(0, 8)}` };
   }
 
+  override get storage(): StorageMode {
+    return this.storageMode;
+  }
+
+  override get heapIncludesShmem(): boolean {
+    return false;
+  }
+
+  private get liveDir(): string {
+    return this.storageMode === 'tmpfs' ? this.ramDir : this.workdir;
+  }
+
   private get sftpDownloadDir(): string {
-    return path.join(this.workdir, 'sftp', 'download');
+    return path.join(this.liveDir, 'sftp', 'download');
+  }
+
+  /** The on-disk fixture cache. On disk storage the daemon serves straight out of it. */
+  private get cacheRoot(): string {
+    return path.join(this.workdir, 'lib', 'volumes', SERVER_UUID);
   }
 
   get serverRoot(): string {
-    return path.join(this.workdir, 'lib', 'volumes', SERVER_UUID);
+    return path.join(this.liveDir, 'lib', 'volumes', SERVER_UUID);
   }
 
   notes(): readonly string[] {
@@ -193,7 +237,12 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
       'decompress is benchmarked for formats a daemon cannot create, so zip decompress is comparable even where zip compress is not',
       'large directory listings are timed one at a time rather than driven by a load generator, and run warm: the warmup run pulls the entries and inodes into cache, so they compare readdir/stat and serialisation rather than cold metadata reads',
     );
-    if (this.dataset?.reflink === true) {
+    if (this.storageMode === 'tmpfs') {
+      notes.push(
+        'files live on tmpfs: fixtures are staged into RAM from the on-disk cache before each task, so writes never reach a disk and fsync is free; only comparable with other tmpfs runs',
+        'the delete fixture is restored with a RAM copy, so deletes measure CPU and dentry work rather than disk metadata updates',
+      );
+    } else if (this.dataset?.reflink === true) {
       notes.push(
         'the delete fixture is restored with a reflink clone, so no byte copy or writeback is charged to the timed delete',
       );
@@ -256,6 +305,15 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
         await networkRemove(this.flavor.networkName).catch(() => undefined);
       }
       await this.mock.stop();
+      await this.releaseTmpfs();
+    }
+  }
+
+  private async releaseTmpfs(): Promise<void> {
+    this.stager = null;
+    this.stagedScenario = null;
+    if (this.storageMode === 'tmpfs') {
+      await unmountTmpfs(this.ramDir);
     }
   }
 
@@ -265,10 +323,11 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
    * is what makes a group sweep need tens of gigabytes.
    */
   override async release(): Promise<void> {
-    await cleanOutputs(this.serverRoot);
+    await this.releaseTmpfs();
+    await cleanOutputs(this.cacheRoot);
     await rm(this.sftpDownloadDir, { recursive: true, force: true });
     if (this.prune) {
-      await rm(this.serverRoot, { recursive: true, force: true });
+      await rm(this.cacheRoot, { recursive: true, force: true });
       await rm(path.join(this.workdir, 'log'), { recursive: true, force: true });
     }
   }
@@ -364,8 +423,34 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
       await this.sftp.prepare();
     }
     const request: DatasetRequest = { trees, archives, listSizes, blob };
-    this.dataset = await ensureDataset(this.serverRoot, request);
+    this.dataset = await ensureDataset(this.cacheRoot, request);
+    if (this.storageMode === 'tmpfs') {
+      await this.mountStaging(scenarios);
+    }
     return this.dataset;
+  }
+
+  private async mountStaging(scenarios: readonly Scenario[]): Promise<void> {
+    const plan = stagePlan(scenarios);
+    const cap = capBytes(plan.pinned, plan.steps);
+    await mountTmpfs(this.ramDir, cap);
+    await Promise.all([path.join(this.ramDir, 'tmp'), this.serverRoot].map((dir) => mkdir(dir, { recursive: true })));
+    console.log(colors.dim(`  staging fixtures on a ${(cap / MIB).toFixed(0)} MiB tmpfs at ${this.ramDir}`));
+    this.stager = new FixtureStager(this.cacheRoot, this.serverRoot, plan.pinned, plan.steps);
+    this.taskOrder = plan.order;
+    this.stagedScenario = null;
+    await this.stager.stagePinned();
+  }
+
+  /** Swaps in what the scenario reads before its first run, outside the timed window. */
+  private async stage(scenario: TaskScenario): Promise<void> {
+    if (this.stager === null || this.stagedScenario === scenario) {
+      return;
+    }
+    await cleanOutputs(this.serverRoot);
+    await rm(this.sftpDownloadDir, { recursive: true, force: true });
+    await this.stager.enter(this.taskOrder.indexOf(scenario));
+    this.stagedScenario = scenario;
   }
 
   unsupported(scenario: TaskScenario, dataset: Dataset): string | null {
@@ -395,10 +480,11 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
   }
 
   async reset(scenario: TaskScenario, dataset: Dataset): Promise<void> {
+    await this.stage(scenario);
     if (scenario.operation.startsWith('sftp') && scenario.operation !== 'sftpLogin') {
       await this.resetSftp(scenario);
     }
-    const root = dataset.root;
+    const root = this.serverRoot;
     switch (scenario.operation) {
       case 'compress':
         await removeMatching(root, (name) => name.startsWith(OUTPUT_PATHS.compressOutput) || isGeneratedArchive(name));
@@ -440,7 +526,7 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
   }
 
   async run(scenario: TaskScenario, dataset: Dataset, auth: AuthContext): Promise<TaskOutcome> {
-    const root = dataset.root;
+    const root = this.serverRoot;
     switch (scenario.operation) {
       case 'compress': {
         const treeId = treeParam(scenario);
@@ -530,7 +616,7 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
           return failure('blob fixture missing');
         }
         const outcome = await this.sftpRun(
-          [`put ${path.join(root, dataset.blob)} /${OUTPUT_PATHS.sftpUpload}`],
+          [`put ${path.join(dataset.root, dataset.blob)} /${OUTPUT_PATHS.sftpUpload}`],
           BLOB_BYTES,
         );
         return verify(
@@ -664,6 +750,74 @@ export abstract class WingsDaemon extends DockerDaemon implements TaskRunner {
       const elapsedMs = performance.now() - started;
       return { outcome: { ok: false, status: 0, elapsedMs, bytes, detail: String(error) }, body: empty };
     }
+  }
+}
+
+export interface StagePlan {
+  readonly pinned: readonly StagedItem[];
+  readonly steps: readonly StageStep[];
+  readonly order: readonly TaskScenario[];
+}
+
+/**
+ * What each task scenario needs resident on tmpfs, in run order. Load scenarios never pass through
+ * reset(), so everything they touch is pinned for the whole variant. Client-side sources (sftp
+ * put) are read from the on-disk cache and only their server-side copy is reserved.
+ */
+export function stagePlan(scenarios: readonly Scenario[]): StagePlan {
+  const pinned: StagedItem[] = [
+    { name: CHUNK_PATH, bytes: pageBytes(CHUNK_BYTES) },
+    { name: SMALL_PATH, bytes: pageBytes(SMALL_BYTES) },
+  ];
+  const steps: StageStep[] = [];
+  const order: TaskScenario[] = [];
+  const list = (entries: number): StagedItem => ({ name: listDirName(entries), bytes: listFootprint(entries) });
+  const tree = (id: string): StagedItem => ({ name: treeDirName(id), bytes: treeFootprint(id) });
+
+  for (const scenario of scenarios) {
+    if (scenario.kind === 'load') {
+      if (scenario.operation === 'listDirectory') {
+        pinned.push(list(entriesParam(scenario.params, scenario.name)));
+      }
+      continue;
+    }
+    order.push(scenario);
+    steps.push(stageStep(scenario, list, tree));
+  }
+  return { pinned, steps, order };
+}
+
+function stageStep(
+  scenario: TaskScenario,
+  list: (entries: number) => StagedItem,
+  tree: (id: string) => StagedItem,
+): StageStep {
+  switch (scenario.operation) {
+    case 'listDirectory':
+    case 'sftpList':
+      return { inputs: [list(entriesParam(scenario.params, scenario.name))], outputBytes: 0 };
+    case 'compress':
+      return { inputs: [tree(treeParam(scenario))], outputBytes: archiveFootprint(treeParam(scenario)) };
+    case 'decompress': {
+      const id = treeParam(scenario);
+      const archive = { name: archiveFileName(id, formatParam(scenario)), bytes: archiveFootprint(id) };
+      return { inputs: [archive], outputBytes: treeFootprint(id) };
+    }
+    case 'deleteTree':
+      // Twice the tree: a daemon that trashes before purging can still hold the previous copy.
+      return { inputs: [], outputBytes: 2 * treeFootprint(treeParam(scenario)) };
+    case 'writeFile':
+      return { inputs: [], outputBytes: pageBytes(UPLOAD_BYTES) };
+    case 'sftpUpload':
+      return { inputs: [], outputBytes: pageBytes(BLOB_BYTES) };
+    case 'sftpDownload':
+      return { inputs: [{ name: BLOB_PATH, bytes: pageBytes(BLOB_BYTES) }], outputBytes: 0 };
+    case 'sftpGetTree':
+      return { inputs: [tree(treeParam(scenario))], outputBytes: treeFootprint(treeParam(scenario)) };
+    case 'sftpPutTree':
+      return { inputs: [], outputBytes: treeFootprint(treeParam(scenario)) };
+    default:
+      return { inputs: [], outputBytes: 0 };
   }
 }
 

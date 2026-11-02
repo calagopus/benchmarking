@@ -13,8 +13,10 @@ import { MIB } from './utils.ts';
 export function formatReport(report: SuiteReport): string {
   const lines: string[] = [];
   const version = report.version !== null ? ` · v${report.version}` : '';
+  const storage = report.storage !== null ? ` · ${report.storage}` : '';
   lines.push(
-    colors.bold(colors.cyan(`\n${report.target}`)) + colors.dim(`  ${report.kind}${version} · ${report.startedAt}`),
+    colors.bold(colors.cyan(`\n${report.target}`)) +
+      colors.dim(`  ${report.kind}${version}${storage} · ${report.startedAt}`),
   );
   for (const note of report.notes) {
     lines.push(colors.dim(`  note: ${note}`));
@@ -163,6 +165,13 @@ export function formatComparison(baseline: SuiteReport, candidate: SuiteReport):
   lines.push(
     colors.bold(colors.cyan(`\ncomparison: ${targetLabel(baseline)} (baseline) vs ${targetLabel(candidate)}`)),
   );
+  if (baseline.storage !== candidate.storage) {
+    lines.push(
+      colors.yellow(
+        `  warning: storage differs (${baseline.storage ?? 'n/a'} vs ${candidate.storage ?? 'n/a'}), file task results are not comparable`,
+      ),
+    );
+  }
 
   let matchedAny = false;
   for (const variant of baseline.variants) {

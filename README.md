@@ -14,7 +14,7 @@ track the performance of Calagopus services under load.
 ## Usage
 
 Each target has its images pulled (`--no-pull` skips this and uses whatever is cached locally), is booted from its own Docker Compose stack, swept across a set of CPU-quota variants, and
-measured while container CPU and heap (anonymous + shared-anonymous memory, excluding page cache) are sampled. The version of the software under test is read from the running target and shown
+measured while container CPU and heap (anonymous + shared-anonymous memory, excluding page cache; anonymous only for daemons, whose shared memory is just tmpfs file pages they wrote) are sampled. The version of the software under test is read from the running target and shown
 in the report header (and included in `--json` output as `version`). Requires `docker`, the `docker compose` plugin, and
 [`oha`](https://github.com/hatoo/oha) on `PATH`.
 
@@ -102,6 +102,22 @@ always freed once a target finishes, as is the daemon log at the start of each v
 and Calagopus Wings writes a line per request, so an unattended sweep otherwise grows a log larger than the fixtures
 it is measuring. Pass `--prune` to also drop each daemon's fixtures and logs as soon as that target is done, which
 keeps only one daemon's set on disk at a time and costs a regeneration on the next run.
+
+## RAM-backed storage
+
+By default daemon targets serve their files from a tmpfs instead of the disk, so file tasks measure the daemon rather
+than the drive under it. A size-capped tmpfs is mounted at `.bench/daemon-<name>/ram` for each variant and the daemon's
+`lib` and `tmp` dirs are bound to it. The fixtures still live in the on-disk cache, and only what the next task reads is
+copied in before its first run, outside the timed window. When the cap forces something out, the fixture whose next
+use is furthest away goes first, and fixtures no later task reads are dropped straight away. The cap is the largest
+single task's inputs plus outputs, about 2.3 GiB with the default scenarios (the 1 GiB decompress). Pages are only
+allocated as files are written.
+
+The mode is decided once per invocation, so every target in a `--compare` or group run uses the same storage, and the
+report records it (`storage` in the JSON). It falls back to disk with a warning when the tmpfs cannot be mounted
+(this needs root), when available memory is below the cap plus 2 GiB of headroom, or when `--memory` is set, because
+tmpfs pages the daemon writes count against its memory limit. `--no-ramfs` forces disk. Results from the two modes
+are not comparable: on tmpfs, writes never reach a disk and fsync costs nothing.
 
 ## Contributing
 

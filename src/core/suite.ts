@@ -400,6 +400,7 @@ export class Suite {
         target: target.label,
         kind: target.kind,
         version: this.version,
+        storage: target.storage,
         startedAt,
         notes: target.notes(),
         variants,
@@ -474,7 +475,7 @@ export class Suite {
     if (containerId === null) {
       return null;
     }
-    const sampler = new ResourceSampler(containerId, IDLE_SAMPLE_INTERVAL_MS);
+    const sampler = new ResourceSampler(containerId, IDLE_SAMPLE_INTERVAL_MS, this.target.heapIncludesShmem);
     await sampler.start();
     await sleep(IDLE_SAMPLE_MS);
     const idle = await sampler.stop();
@@ -500,7 +501,7 @@ export class Suite {
 
     await warmupOha(spec, scenario.load);
 
-    const sampler = containerId !== null ? new ResourceSampler(containerId) : null;
+    const sampler = containerId !== null ? new ResourceSampler(containerId, 500, target.heapIncludesShmem) : null;
     await sampler?.start();
     const measurement = await runOha(spec, scenario.load);
     const resources = sampler !== null ? await sampler.stop() : null;
@@ -574,7 +575,7 @@ export class Suite {
       const measured = !(scenario.warmup && index === 0);
       await runner.reset(scenario, dataset);
 
-      const sampler = containerId !== null ? new ResourceSampler(containerId, 250) : null;
+      const sampler = containerId !== null ? new ResourceSampler(containerId, 250, target.heapIncludesShmem) : null;
       await sampler?.start();
       const outcome = await runner.run(scenario, dataset, auth);
       const usage = sampler !== null ? await sampler.stop() : null;

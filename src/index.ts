@@ -3,9 +3,11 @@ import { join } from 'node:path';
 import colors from 'ansi-colors';
 import { type CliConfig, CliError, HELP_TEXT, parseCli } from './core/cli.ts';
 import { ensureDependencies } from './core/preflight.ts';
+import { capBytes, chooseStorage, type StorageDecision } from './core/ramfs.ts';
 import { formatComparison, formatReport } from './core/report.ts';
-import type { Suite } from './core/suite.ts';
+import { resolveScenarios, type Suite } from './core/suite.ts';
 import type { SuiteReport, TargetKind } from './core/types.ts';
+import { stagePlan } from './core/wings.ts';
 import { calagopusDaemonSuite } from './suites/daemons/calagopus.ts';
 import { pelicanDaemonSuite } from './suites/daemons/pelican.ts';
 import { pterodactylDaemonSuite } from './suites/daemons/pterodactyl.ts';
@@ -69,12 +71,24 @@ function resolveTargets(config: CliConfig): string[] {
   return config.compare !== undefined ? [config.target, config.compare] : [config.target];
 }
 
+async function decideStorage(config: CliConfig): Promise<StorageDecision> {
+  if (config.daemon.ramfs === false) {
+    return { mode: 'disk', reason: 'disabled by --no-ramfs' };
+  }
+  if (config.variants?.some((limit) => limit.memoryMb !== undefined && limit.memoryMb > 0)) {
+    return { mode: 'disk', reason: 'tmpfs pages would count against the --memory limit' };
+  }
+  const plan = stagePlan(resolveScenarios('daemon', config.scenarioOptions));
+  return chooseStorage(capBytes(plan.pinned, plan.steps));
+}
+
 async function main(): Promise<void> {
-  const parsed = parseCli(process.argv.slice(2));
-  if (parsed === 'help') {
+  const cli = parseCli(process.argv.slice(2));
+  if (cli === 'help') {
     console.log(HELP_TEXT);
     return;
   }
+  let parsed = cli;
 
   const runGroup = GROUPS[parsed.target] !== undefined;
   if (parsed.compare !== undefined && (runGroup || GROUPS[parsed.compare] !== undefined)) {
@@ -98,6 +112,12 @@ async function main(): Promise<void> {
   }
 
   await ensureDependencies();
+  if (entries.some((entry) => entry.kind === 'daemon')) {
+    const decision = await decideStorage(parsed);
+    const line = `daemon storage: ${decision.mode} (${decision.reason})`;
+    console.log(decision.mode === 'tmpfs' ? colors.dim(line) : colors.yellow(line));
+    parsed = { ...parsed, daemon: { ...parsed.daemon, storage: decision.mode } };
+  }
   if (parsed.outputDir !== undefined) {
     await mkdir(parsed.outputDir, { recursive: true });
   }
