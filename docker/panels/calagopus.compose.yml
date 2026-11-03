@@ -1,6 +1,6 @@
 services:
   web:
-    image: ${CALAGOPUS_IMAGE:-ghcr.io/calagopus/panel:latest}
+    image: ${CALAGOPUS_IMAGE:-calagopus/panel:latest}
     restart: unless-stopped
     cpus: ${CALAGOPUS_CPUS:-0}
     mem_limit: ${CALAGOPUS_MEM:-0}
@@ -22,7 +22,7 @@ services:
         condition: service_healthy
 
   db:
-    image: ghcr.io/calagopus/pgautoupgrade:18-alpine
+    image: calagopus/pgautoupgrade:18-alpine
     restart: unless-stopped
     environment:
       - TZ=Etc/UTC
