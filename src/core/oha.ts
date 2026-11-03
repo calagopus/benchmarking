@@ -44,7 +44,16 @@ export async function runOha(spec: RequestSpec, load: LoadProfile): Promise<Meas
 }
 
 function buildArgs(spec: RequestSpec, load: LoadProfile): string[] {
-  const args = ['--output-format', 'json', '--no-tui', '-c', String(Math.max(1, load.concurrency)), '-m', spec.method];
+  const args = [
+    '--output-format',
+    'json',
+    '--no-tui',
+    '-c',
+    String(Math.max(1, load.concurrency)),
+    '-m',
+    spec.method,
+    '--disable-compression',
+  ];
 
   if (load.durationMs !== undefined) {
     // Without this oha aborts every in-flight request when the deadline passes and reports exactly
