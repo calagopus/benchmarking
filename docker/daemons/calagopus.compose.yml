@@ -1,6 +1,6 @@
 services:
   wings:
-    image: ${WINGS_IMAGE:-ghcr.io/calagopus/wings:latest}
+    image: ${WINGS_IMAGE:-calagopus/wings:latest}
     restart: unless-stopped
     cpus: ${WINGS_CPUS:-0}
     mem_limit: ${WINGS_MEM:-0}
