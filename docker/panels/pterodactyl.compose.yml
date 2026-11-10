@@ -25,7 +25,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     ports:
-      - "${PTERODACTYL_PORT:-80}:80"
+      - '${PTERODACTYL_PORT:-80}:80'
     depends_on:
       db:
         condition: service_healthy
@@ -43,7 +43,7 @@ services:
       - MYSQL_USER=pterodactyl
       - MYSQL_PASSWORD=pterodactyl
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
       interval: 2s
       timeout: 3s
       retries: 30

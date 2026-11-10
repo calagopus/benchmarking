@@ -79,25 +79,21 @@ export const DEFAULT_DAEMON_SCENARIOS: readonly Scenario[] = [
     auth: 'authenticated',
     load: { concurrency: 32, durationMs: 10_000, warmupMs: 1_000 },
   },
-  ...LIST_SIZES.filter((entries) => entries <= LIST_LOAD_LIMIT).map(
-    (entries): Scenario => ({
-      kind: 'load',
-      name: listScenarioName(entries),
-      operation: 'listDirectory',
-      auth: 'authenticated',
-      load: { concurrency: 32, durationMs: 10_000, warmupMs: 1_000 },
-      params: { entries },
-    }),
-  ),
-  ...LIST_SIZES.filter((entries) => entries > LIST_LOAD_LIMIT).map(
-    (entries): Scenario => ({
-      ...TASK_DEFAULTS,
-      name: listScenarioName(entries),
-      operation: 'listDirectory',
-      repetitions: 10,
-      params: { entries },
-    }),
-  ),
+  ...LIST_SIZES.filter((entries) => entries <= LIST_LOAD_LIMIT).map((entries): Scenario => ({
+    kind: 'load',
+    name: listScenarioName(entries),
+    operation: 'listDirectory',
+    auth: 'authenticated',
+    load: { concurrency: 32, durationMs: 10_000, warmupMs: 1_000 },
+    params: { entries },
+  })),
+  ...LIST_SIZES.filter((entries) => entries > LIST_LOAD_LIMIT).map((entries): Scenario => ({
+    ...TASK_DEFAULTS,
+    name: listScenarioName(entries),
+    operation: 'listDirectory',
+    repetitions: 10,
+    params: { entries },
+  })),
   {
     kind: 'load',
     name: 'download file (4 KiB)',
@@ -133,43 +129,35 @@ export const DEFAULT_DAEMON_SCENARIOS: readonly Scenario[] = [
     { tree: '100m', format: 'zip' },
     { tree: '1g', format: 'zip' },
   ]),
-  ...['100m', '1g', 'many'].map(
-    (tree): Scenario => ({
-      ...TASK_DEFAULTS,
-      name: `delete ${treeLabel(tree)} tree`,
-      operation: 'deleteTree',
-      params: { tree },
-    }),
-  ),
+  ...['100m', '1g', 'many'].map((tree): Scenario => ({
+    ...TASK_DEFAULTS,
+    name: `delete ${treeLabel(tree)} tree`,
+    operation: 'deleteTree',
+    params: { tree },
+  })),
   { ...TASK_DEFAULTS, name: 'upload file (256 MiB)', operation: 'writeFile' },
   { ...TASK_DEFAULTS, name: 'sftp login', operation: 'sftpLogin', repetitions: 10 },
-  ...LIST_SIZES.filter((entries) => entries > LIST_LOAD_LIMIT).map(
-    (entries): Scenario => ({
-      ...TASK_DEFAULTS,
-      name: `sftp list directory (${entries} entries)`,
-      operation: 'sftpList',
-      repetitions: 10,
-      params: { entries },
-    }),
-  ),
+  ...LIST_SIZES.filter((entries) => entries > LIST_LOAD_LIMIT).map((entries): Scenario => ({
+    ...TASK_DEFAULTS,
+    name: `sftp list directory (${entries} entries)`,
+    operation: 'sftpList',
+    repetitions: 10,
+    params: { entries },
+  })),
   { ...TASK_DEFAULTS, name: 'sftp upload file (256 MiB)', operation: 'sftpUpload' },
   { ...TASK_DEFAULTS, name: 'sftp download file (256 MiB)', operation: 'sftpDownload' },
-  ...['100m', 'many'].map(
-    (tree): Scenario => ({
-      ...TASK_DEFAULTS,
-      name: `sftp download ${treeLabel(tree)} tree`,
-      operation: 'sftpGetTree',
-      params: { tree },
-    }),
-  ),
-  ...['100m', 'many'].map(
-    (tree): Scenario => ({
-      ...TASK_DEFAULTS,
-      name: `sftp upload ${treeLabel(tree)} tree`,
-      operation: 'sftpPutTree',
-      params: { tree },
-    }),
-  ),
+  ...['100m', 'many'].map((tree): Scenario => ({
+    ...TASK_DEFAULTS,
+    name: `sftp download ${treeLabel(tree)} tree`,
+    operation: 'sftpGetTree',
+    params: { tree },
+  })),
+  ...['100m', 'many'].map((tree): Scenario => ({
+    ...TASK_DEFAULTS,
+    name: `sftp upload ${treeLabel(tree)} tree`,
+    operation: 'sftpPutTree',
+    params: { tree },
+  })),
 ];
 
 interface ArchiveCase {

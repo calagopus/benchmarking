@@ -9,4 +9,4 @@ services:
       - PUFFER_PANEL_REGISTRATIONENABLED=false
       - PUFFER_DAEMON_ENABLE=false
     ports:
-      - "${PUFFERPANEL_PORT:-8080}:8080"
+      - '${PUFFERPANEL_PORT:-8080}:8080'

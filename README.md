@@ -43,11 +43,11 @@ flat directories of 256 B files:
 Archive and delete tasks run against named tree fixtures rather than a single size axis, so throughput and per-file overhead can
 be told apart:
 
-| Tree   | Shape                                                | What it measures                       |
-| ------ | ---------------------------------------------------- | -------------------------------------- |
-| `100m` | ~2k files, mostly 1 MiB region files plus a 32 MiB jar | codec and IO throughput                |
-| `1g`   | ~22k files, 1 GiB total                               | throughput at a realistic server size  |
-| `many` | 50k × 256 B files, ~13 MiB total                      | per-file syscall and archive-entry cost |
+| Tree   | Shape                                                  | What it measures                        |
+| ------ | ------------------------------------------------------ | --------------------------------------- |
+| `100m` | ~2k files, mostly 1 MiB region files plus a 32 MiB jar | codec and IO throughput                 |
+| `1g`   | ~22k files, 1 GiB total                                | throughput at a realistic server size   |
+| `many` | 50k × 256 B files, ~13 MiB total                       | per-file syscall and archive-entry cost |
 
 SFTP tasks drive each daemon's SFTP server with the host's OpenSSH client (`ssh`, `sftp` and `ssh-keygen` must be on `PATH`;
 without them the SFTP scenarios are skipped). The mock panel accepts any credential, so the client authenticates with a
